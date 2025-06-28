@@ -1153,6 +1153,10 @@ export enum CacheKeys {
    */
   MCP_TOOLS = 'mcp_tools',
   /**
+   * Key for MCP server configurations coming from the UI.
+   */
+  MCP_SERVERS = 'mcp_servers',
+  /**
    * Key for pending chat requests (concurrency check)
    */
   PENDING_REQ = 'pending_req',

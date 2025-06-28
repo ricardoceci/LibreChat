@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Search, X } from 'lucide-react';
 import { useFormContext } from 'react-hook-form';
 import { Constants, isAgentsEndpoint } from 'librechat-data-provider';
@@ -14,8 +14,8 @@ import type {
 import type { AgentForm, TPluginStoreDialogProps } from '~/common';
 import { PluginPagination, PluginAuthForm } from '~/components/Plugins/Store';
 import { useAgentPanelContext } from '~/Providers/AgentPanelContext';
+import { useAvailableMCPsQuery } from '~/data-provider/queries';
 import { useLocalize, usePluginDialogHelpers } from '~/hooks';
-import { useAvailableToolsQuery } from '~/data-provider';
 import ToolItem from './ToolItem';
 
 function ToolSelectDialog({
@@ -27,7 +27,7 @@ function ToolSelectDialog({
 }) {
   const localize = useLocalize();
   const { getValues, setValue } = useFormContext<AgentForm>();
-  const { data: tools } = useAvailableToolsQuery(endpoint);
+  const { data: availableMCPs } = useAvailableMCPsQuery();
   const { groupedTools } = useAgentPanelContext();
   const isAgentTools = isAgentsEndpoint(endpoint);
 
@@ -73,12 +73,16 @@ function ToolSelectDialog({
       // Add the parent
       installedToolIds.push(pluginAction.pluginKey);
 
-      // If this tool is a group, add subtools too
-      const groupObj = groupedTools?.[pluginAction.pluginKey];
-      if (groupObj?.tools && groupObj.tools.length > 0) {
-        for (const sub of groupObj.tools) {
-          if (!installedToolIds.includes(sub.tool_id)) {
-            installedToolIds.push(sub.tool_id);
+      const isMCPTool = pluginAction.pluginKey.includes(Constants.mcp_delimiter);
+
+      if (!isMCPTool) {
+        // If this tool is a group, add subtools too (only for TPlugin tools)
+        const groupObj = groupedTools?.[pluginAction.pluginKey];
+        if (groupObj?.tools && groupObj.tools.length > 0) {
+          for (const sub of groupObj.tools) {
+            if (!installedToolIds.includes(sub.tool_id)) {
+              installedToolIds.push(sub.tool_id);
+            }
           }
         }
       }
@@ -100,28 +104,37 @@ function ToolSelectDialog({
   };
 
   const onRemoveTool = (toolId: string) => {
-    const groupObj = groupedTools?.[toolId];
-    const toolIdsToRemove = [toolId];
-    if (groupObj?.tools && groupObj.tools.length > 0) {
-      toolIdsToRemove.push(...groupObj.tools.map((sub) => sub.tool_id));
-    }
-    // Remove these from the formTools
-    updateUserPlugins.mutate(
-      { pluginKey: toolId, action: 'uninstall', auth: {}, isEntityTool: true },
-      {
-        onError: (error: unknown) => handleInstallError(error as TError),
-        onSuccess: () => {
-          const remainingToolIds =
-            getValues('tools')?.filter((toolId) => !toolIdsToRemove.includes(toolId)) || [];
-          setValue('tools', remainingToolIds);
+    const isMCPTool = toolId.includes(Constants.mcp_delimiter);
+
+    if (isMCPTool) {
+      // For MCP tools, just remove the main tool ID
+      const remainingToolIds = getValues('tools')?.filter((id) => id !== toolId) || [];
+      setValue('tools', remainingToolIds);
+    } else {
+      // For TPlugin tools, handle group structure
+      const groupObj = groupedTools?.[toolId];
+      const toolIdsToRemove = [toolId];
+      if (groupObj?.tools && groupObj.tools.length > 0) {
+        toolIdsToRemove.push(...groupObj.tools.map((sub) => sub.tool_id));
+      }
+      // Remove these from the formTools
+      updateUserPlugins.mutate(
+        { pluginKey: toolId, action: 'uninstall', auth: {}, isEntityTool: true },
+        {
+          onError: (error: unknown) => handleInstallError(error as TError),
+          onSuccess: () => {
+            const remainingToolIds =
+              getValues('tools')?.filter((toolId) => !toolIdsToRemove.includes(toolId)) || [];
+            setValue('tools', remainingToolIds);
+          },
         },
-      },
-    );
+      );
+    }
   };
 
   const onAddTool = (pluginKey: string) => {
     setShowPluginAuthForm(false);
-    const getAvailablePluginFromKey = tools?.find((p) => p.pluginKey === pluginKey);
+    const getAvailablePluginFromKey = allTools.find((p) => p.pluginKey === pluginKey);
     setSelectedPlugin(getAvailablePluginFromKey);
 
     const isMCPTool = pluginKey.includes(Constants.mcp_delimiter);
@@ -144,32 +157,76 @@ function ToolSelectDialog({
     }
   };
 
-  const filteredTools = Object.values(groupedTools || {}).filter(
-    (tool: AgentToolType & { tools?: AgentToolType[] }) => {
-      // Check if the parent tool matches
-      if (tool.metadata?.name?.toLowerCase().includes(searchValue.toLowerCase())) {
-        return true;
-      }
-      // Check if any child tools match
-      if (tool.tools) {
-        return tool.tools.some((childTool) =>
-          childTool.metadata?.name?.toLowerCase().includes(searchValue.toLowerCase()),
-        );
-      }
-      return false;
-    },
-  );
+  // Convert MCP servers to tool format for display
+  const mcpTools = useMemo(() => {
+    if (!availableMCPs) return [];
+
+    return availableMCPs
+      .filter((mcp) => mcp.metadata.name)
+      .map((mcp) => ({
+        tool_id: `${mcp.metadata.name}${Constants.mcp_delimiter}${mcp.metadata.name}`,
+        pluginKey: `${mcp.metadata.name}${Constants.mcp_delimiter}${mcp.metadata.name}`,
+        metadata: {
+          name: mcp.metadata.name,
+          description:
+            mcp.metadata.description ||
+            localize('com_ui_tool_collection_prefix') + ' ' + mcp.metadata.name,
+          icon: mcp.metadata.icon || '',
+        },
+        authConfig:
+          mcp.metadata.customHeaders?.map((header) => ({
+            authField: header.name,
+            label: header.name,
+            description: '',
+          })) || [],
+        authenticated: false,
+        mcp_id: mcp.mcp_id, // Store the actual MCP ID for reference
+      }));
+  }, [availableMCPs, localize]);
+
+  // Combine old tools with new MCP tools (new MCP tools first)
+  const allTools = useMemo(() => {
+    const toolMap = new Map<string, any>();
+
+    // Add new MCP tools first (prioritize over old ones if there are conflicts)
+    mcpTools.forEach((mcpTool) => {
+      toolMap.set(mcpTool.tool_id, mcpTool);
+    });
+
+    // Add existing tools from groupedTools
+    if (groupedTools) {
+      Object.values(groupedTools).forEach((tool) => {
+        toolMap.set(tool.tool_id, tool);
+      });
+    }
+
+    return Array.from(toolMap.values());
+  }, [groupedTools, mcpTools]);
+
+  const filteredTools = allTools.filter((tool: AgentToolType & { tools?: AgentToolType[] }) => {
+    // Check if the parent tool matches
+    if (tool.metadata?.name?.toLowerCase().includes(searchValue.toLowerCase())) {
+      return true;
+    }
+    // Check if any child tools match
+    if (tool.tools) {
+      return tool.tools.some((childTool) =>
+        childTool.metadata?.name?.toLowerCase().includes(searchValue.toLowerCase()),
+      );
+    }
+    return false;
+  });
 
   useEffect(() => {
     if (filteredTools) {
-      setMaxPage(Math.ceil(Object.keys(filteredTools || {}).length / itemsPerPage));
+      setMaxPage(Math.ceil(filteredTools.length / itemsPerPage));
       if (searchChanged) {
         setCurrentPage(1);
         setSearchChanged(false);
       }
     }
   }, [
-    tools,
+    allTools,
     itemsPerPage,
     searchValue,
     filteredTools,

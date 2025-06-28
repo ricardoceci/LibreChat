@@ -1,10 +1,11 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useMemo } from 'react';
 import { Constants, EModelEndpoint } from 'librechat-data-provider';
 import type { TPlugin, AgentToolType, Action, MCP } from 'librechat-data-provider';
 import type { AgentPanelContextType } from '~/common';
 import { useAvailableToolsQuery, useGetActionsQuery } from '~/data-provider';
 import { useLocalize } from '~/hooks';
 import { Panel } from '~/common';
+import { useAvailableMCPsQuery } from '~/data-provider/queries';
 
 const AgentPanelContext = createContext<AgentPanelContextType | undefined>(undefined);
 
@@ -33,6 +34,8 @@ export function AgentPanelProvider({ children }: { children: React.ReactNode }) 
     enabled: !!agent_id,
   });
 
+  const { data: availableMCPs } = useAvailableMCPsQuery();
+
   const tools =
     pluginTools?.map((tool) => ({
       tool_id: tool.pluginKey,
@@ -40,25 +43,34 @@ export function AgentPanelProvider({ children }: { children: React.ReactNode }) 
       agent_id: agent_id || '',
     })) || [];
 
-  const groupedTools = tools?.reduce(
-    (acc, tool) => {
+  // Add new MCP servers to the tools array
+  const newMCPTools =
+    availableMCPs?.map((mcp) => ({
+      tool_id: `${mcp.metadata.name}${Constants.mcp_delimiter}${mcp.metadata.name}`,
+      metadata: {
+        name: mcp.metadata.name,
+        description: mcp.metadata.description || '',
+        icon: mcp.metadata.icon || '',
+        pluginKey: `${mcp.metadata.name}${Constants.mcp_delimiter}${mcp.metadata.name}`,
+      } as TPlugin,
+      agent_id: agent_id || '',
+    })) || [];
+
+  const allTools = [...tools, ...newMCPTools];
+
+  const groupedTools = useMemo(() => {
+    const acc: Record<string, AgentToolType & { tools?: AgentToolType[] }> = {};
+    const serverGroups: Record<string, AgentToolType[]> = {};
+
+    // First pass: collect all tools by server
+    allTools.forEach((tool) => {
       if (tool.tool_id.includes(Constants.mcp_delimiter)) {
         const [_toolName, serverName] = tool.tool_id.split(Constants.mcp_delimiter);
         const groupKey = `${serverName.toLowerCase()}`;
-        if (!acc[groupKey]) {
-          acc[groupKey] = {
-            tool_id: groupKey,
-            metadata: {
-              name: `${serverName}`,
-              pluginKey: groupKey,
-              description: `${localize('com_ui_tool_collection_prefix')} ${serverName}`,
-              icon: tool.metadata.icon || '',
-            } as TPlugin,
-            agent_id: agent_id || '',
-            tools: [],
-          };
+        if (!serverGroups[groupKey]) {
+          serverGroups[groupKey] = [];
         }
-        acc[groupKey].tools?.push({
+        serverGroups[groupKey].push({
           tool_id: tool.tool_id,
           metadata: tool.metadata,
           agent_id: agent_id || '',
@@ -70,10 +82,37 @@ export function AgentPanelProvider({ children }: { children: React.ReactNode }) 
           agent_id: agent_id || '',
         };
       }
-      return acc;
-    },
-    {} as Record<string, AgentToolType & { tools?: AgentToolType[] }>,
-  );
+    });
+
+    // Second pass: create groups only for servers with multiple tools
+    Object.entries(serverGroups).forEach(([groupKey, tools]) => {
+      if (tools.length === 1) {
+        // Single tool: add as individual tool, not as group
+        const tool = tools[0];
+        acc[tool.tool_id] = {
+          tool_id: tool.tool_id,
+          metadata: tool.metadata,
+          agent_id: agent_id || '',
+        };
+      } else {
+        // Multiple tools: create group
+        const serverName = tools[0].tool_id.split(Constants.mcp_delimiter)[1];
+        acc[groupKey] = {
+          tool_id: groupKey,
+          metadata: {
+            name: `${serverName}`,
+            pluginKey: groupKey,
+            description: `${localize('com_ui_tool_collection_prefix')} ${serverName}`,
+            icon: tools[0].metadata.icon || '',
+          } as TPlugin,
+          agent_id: agent_id || '',
+          tools: tools,
+        };
+      }
+    });
+
+    return acc;
+  }, [allTools, agent_id, localize]);
 
   const value = {
     action,
@@ -90,6 +129,7 @@ export function AgentPanelProvider({ children }: { children: React.ReactNode }) 
     /** Query data for actions and tools */
     actions,
     tools,
+    availableMCPs,
   };
 
   return <AgentPanelContext.Provider value={value}>{children}</AgentPanelContext.Provider>;

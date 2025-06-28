@@ -33,6 +33,10 @@ const mcpTools = isRedisEnabled
   ? new Keyv({ store: keyvRedis })
   : new Keyv({ namespace: CacheKeys.MCP_TOOLS });
 
+const mcpServers = isRedisEnabled
+  ? new Keyv({ store: keyvRedis })
+  : new Keyv({ namespace: CacheKeys.MCP_SERVERS });
+
 const audioRuns = isRedisEnabled
   ? new Keyv({ store: keyvRedis, ttl: Time.TEN_MINUTES })
   : new Keyv({ namespace: CacheKeys.AUDIO_RUNS, ttl: Time.TEN_MINUTES });
@@ -108,6 +112,7 @@ const namespaces = {
   [CacheKeys.MESSAGES]: messages,
   [CacheKeys.FLOWS]: flows,
   [CacheKeys.OPENID_EXCHANGED_TOKENS]: openIdExchangedTokensCache,
+  [CacheKeys.MCP_SERVERS]: mcpServers,
 };
 
 /**

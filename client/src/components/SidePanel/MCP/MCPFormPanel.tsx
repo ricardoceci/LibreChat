@@ -6,7 +6,12 @@ import type { MCPForm } from '~/common';
 import { OGDialog, OGDialogTrigger, Label } from '~/components/ui';
 import OGDialogTemplate from '~/components/ui/OGDialogTemplate';
 import { defaultMCPFormValues } from '~/common/mcp';
-import { useCreateMCPMutation, useUpdateMCPMutation, useDeleteMCPMutation } from '~/data-provider';
+// import { useCreateMCPMutation, useUpdateMCPMutation, useDeleteMCPMutation } from '~/data-provider';
+import {
+  useCreateMCPMutation,
+  useUpdateMCPMutation,
+  useDeleteMCPMutation,
+} from '~/data-provider/MCPs/mutations';
 import { useToastContext } from '~/Providers';
 import useLocalize from '~/hooks/useLocalize';
 import { TrashIcon } from '~/components/svg';

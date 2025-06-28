@@ -4,6 +4,7 @@ import {
   EModelEndpoint,
   defaultOrderQuery,
   defaultAssistantsVersion,
+  request,
 } from 'librechat-data-provider';
 import { useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import type {
@@ -28,6 +29,7 @@ import type {
   TCheckUserKeyResponse,
   SharedLinksListParams,
   SharedLinksResponse,
+  MCP,
 } from 'librechat-data-provider';
 import type { ConversationCursorData } from '~/utils/convos';
 import { findConversationInInfinite } from '~/utils';
@@ -217,6 +219,26 @@ export const useAvailableToolsQuery = <TData = t.TPlugin[]>(
       ...config,
     },
   );
+};
+
+/**
+ * Hook for getting all available MCP servers from the new cache
+ */
+export const useAvailableMCPsQuery = <TData = MCP[]>(
+  config?: UseQueryOptions<MCP[], unknown, TData>,
+): QueryObserverResult<TData> => {
+  // Local data service function for MCPs
+  const getAvailableMCPs = (): Promise<MCP[]> => {
+    return request.get('/api/mcp');
+  };
+
+  return useQuery<MCP[], unknown, TData>(['mcpServers'], () => getAvailableMCPs(), {
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchOnMount: false,
+    ...config,
+  });
 };
 
 /**

@@ -141,7 +141,6 @@ const getAvailableTools = async (req, res) => {
   try {
     const cache = getLogStores(CacheKeys.CONFIG_STORE);
     const cachedTools = await cache.get(CacheKeys.TOOLS);
-    console.log('cachedTools\n\n\n\n LOOK\n\n\n\n', cachedTools);
     if (cachedTools) {
       res.status(200).json(cachedTools);
       return;
@@ -176,7 +175,7 @@ const getAvailableTools = async (req, res) => {
 
     // Use user-specific tools cache instead of global cache
     const userId = req.user?.id;
-    const toolDefinitions = userId 
+    const toolDefinitions = userId
       ? await getCachedTools({ userId, includeGlobal: true })
       : await getCachedTools({ includeGlobal: true });
 

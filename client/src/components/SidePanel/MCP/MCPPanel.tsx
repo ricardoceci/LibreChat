@@ -5,7 +5,8 @@ import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { useUpdateUserPluginsMutation } from 'librechat-data-provider/react-query';
 import type { TUpdateUserPlugins } from 'librechat-data-provider';
 import type { MCP } from 'librechat-data-provider';
-import { useDeleteMCPMutation } from '~/data-provider';
+// import { useDeleteMCPMutation } from '~/data-provider';
+import { useDeleteMCPMutation } from '~/data-provider/MCPs/mutations';
 import { Button, Input, Label, OGDialog, OGDialogTrigger, OGDialogTemplate } from '~/components/ui';
 import { useAvailableAgentToolsQuery } from '~/data-provider/Agents/queries';
 import { useGetStartupConfig } from '~/data-provider';
@@ -13,6 +14,7 @@ import MCPPanelSkeleton from './MCPPanelSkeleton';
 import { useToastContext } from '~/Providers';
 import MCPFormPanel from './MCPFormPanel';
 import { useLocalize } from '~/hooks';
+import { useAvailableMCPsQuery } from '~/data-provider/queries';
 
 type MCPWithExtras = MCP & {
   isUserCreated: boolean;
@@ -24,6 +26,7 @@ export default function MCPPanel() {
   const { showToast } = useToastContext();
   const { data: startupConfig, isLoading: startupConfigLoading } = useGetStartupConfig();
   const { data: availableTools, isLoading: toolsLoading } = useAvailableAgentToolsQuery();
+  const { data: availableMCPs, isLoading: availableMCPsLoading } = useAvailableMCPsQuery();
   const [selectedServerNameForEditing, setSelectedServerNameForEditing] = useState<string | null>(
     null,
   );
@@ -60,7 +63,7 @@ export default function MCPPanel() {
       if (isMCP && tool.chatMenu !== false) {
         const parts = tool.pluginKey.split(Constants.mcp_delimiter);
         const serverName = parts[parts.length - 1];
-        if (!mcpToolsMap.has(serverName)) {
+        if (serverName && !mcpToolsMap.has(serverName)) {
           mcpToolsMap.set(serverName, {
             name: serverName,
             pluginKey: tool.pluginKey,
@@ -75,7 +78,28 @@ export default function MCPPanel() {
     return Array.from(mcpToolsMap.values());
   }, [availableTools]);
 
-  // Combine startup config MCP servers with user-created MCP tools
+  // Process new MCP servers from the dedicated cache
+  const newMCPServers = useMemo(() => {
+    if (!availableMCPs) return [];
+
+    return availableMCPs
+      .filter((mcp) => mcp.metadata.name) // Filter out MCPs without names
+      .map((mcp) => ({
+        mcp_id: mcp.mcp_id, // Use the actual mcp_id from backend
+        name: mcp.metadata.name!,
+        pluginKey: `${mcp.metadata.name}${Constants.mcp_delimiter}${mcp.metadata.name}`,
+        authConfig:
+          mcp.metadata.customHeaders?.map((header) => ({
+            authField: header.name,
+            label: header.name,
+            description: '',
+          })) || [],
+        authenticated: false, // TODO: Check authentication status
+        icon: mcp.metadata.icon || '',
+      }));
+  }, [availableMCPs]);
+
+  // Combine startup config MCP servers with user-created MCP tools and new MCP servers
   const allMCPServers = useMemo(() => {
     const serverSet = new Set<string>();
     const servers: MCPWithExtras[] = [];
@@ -104,7 +128,50 @@ export default function MCPPanel() {
       }
     });
 
-    // Add user-created servers (only if not already added from startup config)
+    // Add new MCP servers (prioritize over old ones)
+    newMCPServers.forEach((server) => {
+      if (!serverSet.has(server.name)) {
+        serverSet.add(server.name);
+
+        // Find the actual MCP data from availableMCPs
+        const actualMCP = availableMCPs?.find((mcp) => mcp.mcp_id === server.mcp_id);
+
+        servers.push({
+          mcp_id: server.mcp_id, // Use the actual mcp_id from backend
+          agent_id: actualMCP?.agent_id || '',
+          metadata: {
+            name: server.name,
+            description: actualMCP?.metadata.description || '',
+            url: actualMCP?.metadata.url || '',
+            icon: actualMCP?.metadata.icon || server.icon || '',
+            tools: actualMCP?.metadata.tools || [],
+            trust: actualMCP?.metadata.trust || false,
+            customHeaders:
+              actualMCP?.metadata.customHeaders ||
+              server.authConfig.map((auth) => ({
+                id: auth.authField,
+                name: auth.authField,
+                value: '',
+              })),
+            requestTimeout: actualMCP?.metadata.requestTimeout,
+            connectionTimeout: actualMCP?.metadata.connectionTimeout,
+          },
+          isUserCreated: true,
+          customUserVars: server.authConfig.reduce(
+            (acc, auth) => {
+              acc[auth.authField] = {
+                title: auth.label || auth.authField,
+                description: auth.description || '',
+              };
+              return acc;
+            },
+            {} as Record<string, { title: string; description: string }>,
+          ),
+        });
+      }
+    });
+
+    // Add old TPlugin MCPs (only if not already present from new MCPs)
     mcpTools.forEach((tool) => {
       if (!serverSet.has(tool.name)) {
         serverSet.add(tool.name);
@@ -138,8 +205,10 @@ export default function MCPPanel() {
       }
     });
 
+    // console.log('All MCP Servers (combined):', servers);
+
     return servers;
-  }, [mcpServerDefinitions, mcpTools]);
+  }, [mcpServerDefinitions, newMCPServers, mcpTools, availableMCPs]);
 
   const updateUserPluginsMutation = useUpdateUserPluginsMutation({
     onSuccess: () => {
@@ -154,7 +223,7 @@ export default function MCPPanel() {
     },
   });
 
-  const deleteMCP = useDeleteMCPMutation({
+  const deleteMCP_new = useDeleteMCPMutation({
     onSuccess: () => {
       showToast({
         message: localize('com_ui_delete_mcp_success'),
@@ -238,7 +307,7 @@ export default function MCPPanel() {
     );
   }
 
-  if (startupConfigLoading || toolsLoading) {
+  if (startupConfigLoading || toolsLoading || availableMCPsLoading) {
     return <MCPPanelSkeleton />;
   }
 
@@ -306,22 +375,26 @@ export default function MCPPanel() {
       <div className="h-auto max-w-full overflow-x-hidden p-3">
         <div className="space-y-2">
           {allMCPServers.map((server) => (
-            <Button
+            <div
               key={server.mcp_id}
-              variant="outline"
-              className="w-full justify-start pl-4 pr-2 dark:hover:bg-gray-700"
-              onClick={() => handleServerClickToEdit(server.mcp_id)}
+              className="flex w-full items-center justify-between rounded-lg border border-border-medium bg-transparent p-3 hover:bg-gray-50 dark:hover:bg-gray-700"
             >
-              <div className="flex w-full items-center justify-between">
-                <span>{server.mcp_id}</span>
+              <button
+                type="button"
+                className="flex grow items-center justify-start text-left focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                onClick={() => handleServerClickToEdit(server.mcp_id)}
+                aria-label={`${server.isUserCreated ? 'Edit' : 'Configure'} MCP server ${server.metadata.name}`}
+              >
+                <span>{server.metadata.name}</span>
+              </button>
+              <div className="ml-4 flex h-7 w-7 items-center justify-center">
                 {server.isUserCreated && (
                   <OGDialog>
                     <OGDialogTrigger asChild>
                       <button
                         type="button"
-                        className="ml-4 flex h-7 w-7 items-center justify-center rounded p-1 text-white hover:bg-surface-secondary"
-                        onClick={(e) => e.stopPropagation()}
-                        aria-label={`Delete ${server.mcp_id}`}
+                        className="flex h-7 w-7 items-center justify-center rounded p-1 text-white hover:bg-surface-secondary focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                        aria-label={`Delete MCP server ${server.mcp_id}`}
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -337,7 +410,7 @@ export default function MCPPanel() {
                       }
                       selection={{
                         selectHandler: () => {
-                          deleteMCP.mutate({ mcp_id: server.mcp_id });
+                          deleteMCP_new.mutate({ mcp_id: server.mcp_id });
                         },
                         selectClasses:
                           'bg-red-700 dark:bg-red-600 hover:bg-red-800 dark:hover:bg-red-800 transition-color duration-200 text-white',
@@ -347,7 +420,7 @@ export default function MCPPanel() {
                   </OGDialog>
                 )}
               </div>
-            </Button>
+            </div>
           ))}
           <button
             type="button"

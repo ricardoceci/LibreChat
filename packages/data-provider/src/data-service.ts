@@ -833,25 +833,19 @@ export const createMemory = (data: {
   return request.post(endpoints.memories(), data);
 };
 
-export const createMCP = (mcp: ag.MCP): Promise<Record<string, unknown>> => {
+export const createMCP = (mcp: ag.MCP): Promise<ag.MCP> => {
   return request.post(
-    endpoints.agents({
-      path: 'tools/add',
+    endpoints.mcps({
+      path: 'add',
     }),
     mcp,
   );
 };
 
-export const updateMCP = ({
-  mcp_id,
-  data,
-}: {
-  mcp_id: string;
-  data: ag.MCP;
-}): Promise<Record<string, unknown>> => {
+export const updateMCP = ({ mcp_id, data }: { mcp_id: string; data: ag.MCP }): Promise<ag.MCP> => {
   return request.put(
-    endpoints.agents({
-      path: `tools/${mcp_id}`,
+    endpoints.mcps({
+      path: mcp_id,
     }),
     data,
   );
@@ -859,8 +853,13 @@ export const updateMCP = ({
 
 export const deleteMCP = ({ mcp_id }: { mcp_id: string }): Promise<Record<string, unknown>> => {
   return request.delete(
-    endpoints.agents({
-      path: `tools/${mcp_id}`,
+    endpoints.mcps({
+      path: mcp_id,
     }),
   );
+};
+
+// Get all available MCP servers from the new cache
+export const getAvailableMCPs = (): Promise<ag.MCP[]> => {
+  return request.get(endpoints.mcps({}));
 };
