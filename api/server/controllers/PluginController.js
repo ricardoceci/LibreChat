@@ -1,6 +1,6 @@
 const { logger } = require('@librechat/data-schemas');
 const { CacheKeys, AuthType } = require('librechat-data-provider');
-const { getCustomConfig, getCachedTools, setCachedTools } = require('~/server/services/Config');
+const { getCustomConfig, getCachedTools } = require('~/server/services/Config');
 const { getToolkitKey } = require('~/server/services/ToolService');
 const { getMCPManager, getFlowStateManager } = require('~/config');
 const { availableTools } = require('~/app/clients/tools');
@@ -173,18 +173,14 @@ const getAvailableTools = async (req, res) => {
       }
     });
 
-    // Use user-specific tools cache instead of global cache
-    const userId = req.user?.id;
-    const toolDefinitions = userId
-      ? await getCachedTools({ userId, includeGlobal: true })
-      : await getCachedTools({ includeGlobal: true });
+    const toolDefinitions = await getCachedTools({ includeGlobal: true });
 
     const toolsOutput = [];
     for (const plugin of authenticatedPlugins) {
-      const isToolDefined = toolDefinitions?.[plugin.pluginKey] !== undefined;
+      const isToolDefined = toolDefinitions[plugin.pluginKey] !== undefined;
       const isToolkit =
         plugin.toolkit === true &&
-        Object.keys(toolDefinitions || {}).some((key) => getToolkitKey(key) === plugin.pluginKey);
+        Object.keys(toolDefinitions).some((key) => getToolkitKey(key) === plugin.pluginKey);
 
       if (!isToolDefined && !isToolkit) {
         continue;
@@ -225,35 +221,6 @@ const getAvailableTools = async (req, res) => {
 
     const finalTools = filterUniquePlugins(toolsOutput);
     await cache.set(CacheKeys.TOOLS, finalTools);
-
-    // Update user-specific tools cache with MCP tools instead of global cache
-    if (userId) {
-      const userTools = (await getCachedTools({ userId, includeGlobal: false })) || {};
-      const mcpToolsForUserCache = {};
-
-      // Add MCP tools to user cache
-      for (const tool of finalTools) {
-        if (tool.pluginKey && tool.pluginKey.includes(Constants.mcp_delimiter)) {
-          mcpToolsForUserCache[tool.pluginKey] = {
-            type: 'function',
-            function: {
-              description: tool.description || '',
-              name: tool.name,
-              parameters: {
-                type: 'object',
-                properties: {},
-                required: [],
-              },
-            },
-          };
-        }
-      }
-
-      // Merge with existing user tools and update cache
-      const updatedUserTools = { ...userTools, ...mcpToolsForUserCache };
-      await setCachedTools(updatedUserTools, { userId });
-    }
-
     res.status(200).json(finalTools);
   } catch (error) {
     logger.error('[getAvailableTools]', error);

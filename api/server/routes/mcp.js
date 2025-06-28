@@ -257,8 +257,6 @@ router.post('/add', requireJwtAuth, async (req, res) => {
         .json({ message: 'Missing required fields: name and url are required' });
     }
 
-    logger.info('CREATE MCP SERVER:', JSON.stringify(mcp, null, 2));
-
     // Check if server already exists for this user
     const existingServers = await getCachedMCPs({ userId });
     const serverExists = existingServers.some(
@@ -303,7 +301,6 @@ router.post('/add', requireJwtAuth, async (req, res) => {
     // };
     // mcpManager.addServerConfig(serverName, serverConfig);
 
-    logger.info(`MCP server ${mcp.metadata.name} created successfully for user ${userId}`);
     res.status(201).json(mcpServer);
   } catch (error) {
     logger.error('Error creating MCP server:', error);
@@ -343,8 +340,6 @@ router.put('/:mcp_id', requireJwtAuth, async (req, res) => {
       logger.warn('MCP server update with missing mcp_id');
       return res.status(400).json({ message: 'Missing required parameter: mcp_id' });
     }
-
-    logger.info('UPDATE MCP SERVER:', mcp_id, JSON.stringify(mcp, null, 2));
 
     // Check if server exists before updating
     const existingServers = await getCachedMCPs({ userId });
@@ -388,7 +383,6 @@ router.put('/:mcp_id', requireJwtAuth, async (req, res) => {
     // };
     // mcpManager.addServerConfig(mcp.metadata.name, serverConfig);
 
-    logger.info(`MCP server ${mcp.metadata.name} updated successfully for user ${userId}`);
     res.json(updatedMCP);
   } catch (error) {
     logger.error('Error updating MCP server:', error);
@@ -419,8 +413,6 @@ router.delete('/:mcp_id', requireJwtAuth, async (req, res) => {
       return res.status(400).json({ message: 'Missing required parameter: mcp_id' });
     }
 
-    logger.info('DELETE MCP SERVER:', mcp_id, 'for user:', userId);
-
     // Check if server exists before deleting
     const existingServers = await getCachedMCPs({ userId });
     const serverExists = existingServers.some((server) => server.mcp_id === mcp_id);
@@ -433,7 +425,6 @@ router.delete('/:mcp_id', requireJwtAuth, async (req, res) => {
     // Remove the MCP server from the user's cache using the utility function
     await removeCachedMCP(mcp_id, { userId });
 
-    logger.info(`MCP server ${mcp_id} deleted successfully for user ${userId}`);
     res.json({ message: 'MCP server deleted successfully' });
   } catch (error) {
     logger.error('Error deleting MCP server:', error);

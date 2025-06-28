@@ -7,7 +7,6 @@ import VersionPanel from './Version/VersionPanel';
 import { useChatContext } from '~/Providers';
 import ActionsPanel from './ActionsPanel';
 import AgentPanel from './AgentPanel';
-import AgentMCPFormPanel from './AgentMCPFormPanel';
 import { Panel } from '~/common';
 
 export default function AgentPanelSwitch() {
@@ -54,8 +53,8 @@ function AgentPanelSwitchWithContext() {
   if (activePanel === Panel.version) {
     return <VersionPanel />;
   }
-  if (activePanel === Panel.mcp) {
-    return <AgentMCPFormPanel />;
-  }
+  // if (activePanel === Panel.mcp) {
+  //   return <MCPFormPanel />;
+  // }
   return <AgentPanel agentsConfig={agentsConfig} endpointsConfig={endpointsConfig} />;
 }

@@ -14,8 +14,6 @@ import { MCPTokenStorage } from './oauth/tokens';
 import { formatToolContent } from './parsers';
 import { MCPConnection } from './connection';
 import { processMCPEnv } from '~/utils/env';
-import { z } from 'zod';
-import { MCPOptionsSchema } from 'librechat-data-provider';
 
 export class MCPManager {
   private static instance: MCPManager | null = null;
@@ -745,11 +743,8 @@ export class MCPManager {
     getServerTools?: (serverName: string) => Promise<t.LCManifestTool[] | undefined>;
   }): Promise<t.LCToolManifest> {
     const mcpTools: t.LCManifestTool[] = [];
-    const processedServers = new Set<string>();
-
     for (const [serverName, connection] of this.connections.entries()) {
       try {
-        processedServers.add(serverName);
         /** Attempt to ensure connection is active, with reconnection if needed */
         const isActive = await this.isConnectionActive({
           serverName,
@@ -805,29 +800,6 @@ export class MCPManager {
         }
       } catch (error) {
         logger.error(`[MCP][${serverName}] Error fetching tools for manifest:`, error);
-      }
-    }
-
-    // Check for cached MCP tools from servers that aren't in active connections
-    // This ensures newly created MCP servers are included even if they don't have active connections yet
-    if (typeof getServerTools === 'function') {
-      try {
-        // Get all server names from mcpConfigs that weren't processed above
-        const configServerNames = Object.keys(this.mcpConfigs);
-        for (const serverName of configServerNames) {
-          if (!processedServers.has(serverName)) {
-            logger.info(`[MCP][${serverName}] Checking for cached tools from inactive server`);
-            const serverTools = await getServerTools(serverName);
-            if (serverTools && serverTools.length > 0) {
-              logger.info(
-                `[MCP][${serverName}] Loaded ${serverTools.length} cached tools for manifest`,
-              );
-              mcpTools.push(...serverTools);
-            }
-          }
-        }
-      } catch (error) {
-        logger.error('[MCP] Error checking for cached tools from inactive servers:', error);
       }
     }
 
@@ -1123,17 +1095,5 @@ ${logPrefix} Flow ID: ${newFlowId}
       logger.error(`${logPrefix} Failed to complete OAuth flow for ${serverName}`, error);
       return null;
     }
-  }
-
-  /** Adds a new MCP server configuration to the manager */
-  public addServerConfig(serverName: string, config: z.infer<typeof MCPOptionsSchema>): void {
-    this.mcpConfigs[serverName] = config;
-    logger.info(`[MCP][${serverName}] Added server configuration to manager`);
-  }
-
-  /** Removes an MCP server configuration from the manager */
-  public removeServerConfig(serverName: string): void {
-    delete this.mcpConfigs[serverName];
-    logger.info(`[MCP][${serverName}] Removed server configuration from manager`);
   }
 }
